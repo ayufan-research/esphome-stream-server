@@ -45,7 +45,10 @@ public:
 
     void set_port(uint16_t port) { this->port_ = port; }
 
+    void set_max_clients(int max_clients) { this->max_clients_ = max_clients; }
+
 protected:
+    void discard_clients();
     void cleanup();
     void read();
     bool flush();
@@ -63,6 +66,7 @@ protected:
     Stream *stream_{nullptr};
     AsyncServer server_{0};
     uint16_t port_{6638};
+    int max_clients_{-1};
     std::vector<char> send_buf_{};
     int send_client_{0};
     std::vector<uint8_t> recv_buf_{};

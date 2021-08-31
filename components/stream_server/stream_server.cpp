@@ -36,6 +36,7 @@ void StreamServerComponent::setup() {
             return;
 
         this->clients_.push_back(std::unique_ptr<Client>(new Client(tcpClient, this->recv_buf_)));
+        this->discard_clients();
     }, this);
 }
 
@@ -43,6 +44,30 @@ void StreamServerComponent::loop() {
     this->cleanup();
     this->read();
     this->write();
+}
+
+template<typename T>
+void disconnect_over(T it, T end, int n) {
+    for ( ; it != end; it++) {
+        if ((*it)->disconnected)
+            continue;
+
+        if (n <= 0) {
+            (*it)->disconnected = true;
+        } else {
+            n--;
+        }
+    }
+}
+
+void StreamServerComponent::discard_clients() {
+    int count = 0;
+
+    if (this->max_clients_ > 0) {
+        disconnect_over(this->clients_.begin(), this->clients_.end(), this->max_clients_);
+    } else if (this->max_clients_ < 0) {
+        disconnect_over(this->clients_.rbegin(), this->clients_.rend(), -this->max_clients_);
+    }
 }
 
 void StreamServerComponent::cleanup() {
@@ -96,6 +121,12 @@ bool StreamServerComponent::flush() {
         return true;
     }
 
+    ESP_LOGD(TAG, "Writing to %d bytes to TCP %d/%d clients. Serial %d available.",
+        this->send_buf_.size(),
+        this->send_client_,
+        this->clients_.size(),
+        this->stream_->available());
+
     for ( ; this->send_client_ < this->clients_.size(); this->send_client_++) {
         auto const& client = this->clients_[this->send_client_];
 
@@ -114,6 +145,7 @@ void StreamServerComponent::write() {
     size_t len;
     while ((len = this->recv_buf_.size()) > 0) {
         len = this->stream_->write(this->recv_buf_.data(), len);
+        ESP_LOGD(TAG, "Wrote to %d bytes to UART", len);
         this->recv_buf_.erase(this->recv_buf_.begin(), this->recv_buf_.begin() + len);
     }
 }
@@ -141,7 +173,7 @@ StreamServerComponent::Client::Client(AsyncClient *client, std::vector<uint8_t> 
             return;
 
         auto buf = static_cast<uint8_t *>(data);
-        recv_buf.insert(recv_buf.end(), buf, buf + len);
+        this->recv_buf.insert(recv_buf.end(), buf, buf + len);
     }, nullptr);
 }
 
