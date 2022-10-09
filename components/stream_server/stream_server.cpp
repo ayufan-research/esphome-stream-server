@@ -18,16 +18,18 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
+#include "esphome/components/network/util.h"
 
 static const char *TAG = "streamserver";
-static const int BUF_SIZE = 128;
+static const int RECV_BUF_SIZE = 128;
+static const int SEND_BUF_SIZE = 256;
 
 using namespace esphome;
 
 void StreamServerComponent::setup() {
     ESP_LOGCONFIG(TAG, "Setting up stream server...");
-    this->recv_buf_.reserve(BUF_SIZE);
-    this->send_buf_.reserve(BUF_SIZE);
+    this->recv_buf_.reserve(RECV_BUF_SIZE);
+    this->send_buf_.reserve(SEND_BUF_SIZE);
 
     this->server_ = AsyncServer(this->port_);
     this->server_.begin();
@@ -35,6 +37,7 @@ void StreamServerComponent::setup() {
         if(tcpClient == nullptr)
             return;
 
+        tcpClient->setNoDelay(true);
         this->clients_.push_back(std::unique_ptr<Client>(new Client(tcpClient, this->recv_buf_)));
         this->discard_clients();
     }, this);
@@ -44,6 +47,12 @@ void StreamServerComponent::loop() {
     this->cleanup();
     this->read();
     this->write();
+
+    if (this->stream_->available()) {
+        this->high_freq_.start();
+    } else {
+        this->high_freq_.stop();
+    }
 }
 
 template<typename T>
@@ -105,8 +114,8 @@ void StreamServerComponent::read() {
 
     int len;
     while ((len = this->stream_->available()) > 0) {
-        this->send_buf_.resize(BUF_SIZE);
-        size_t read = this->stream_->readBytes(this->send_buf_.data(), min(len, BUF_SIZE));
+        this->send_buf_.resize(SEND_BUF_SIZE);
+        size_t read = this->stream_->read_array(this->send_buf_.data(), std::min(len, SEND_BUF_SIZE));
         this->send_buf_.resize(read);
         this->send_client_ = 0;
 
@@ -131,7 +140,7 @@ bool StreamServerComponent::flush() {
         auto const& client = this->clients_[this->send_client_];
 
         // client overflow
-        if (!client->tcp_client->write(this->send_buf_.data(), this->send_buf_.size())) {
+        if (!client->tcp_client->write((const char *)this->send_buf_.data(), this->send_buf_.size())) {
             return false;
         }
     }
@@ -144,7 +153,7 @@ bool StreamServerComponent::flush() {
 void StreamServerComponent::write() {
     size_t len;
     while ((len = this->recv_buf_.size()) > 0) {
-        len = this->stream_->write(this->recv_buf_.data(), len);
+        this->stream_->write_array(this->recv_buf_.data(), len);
         ESP_LOGD(TAG, "Wrote to %d bytes to UART", len);
         this->recv_buf_.erase(this->recv_buf_.begin(), this->recv_buf_.begin() + len);
     }
@@ -152,7 +161,7 @@ void StreamServerComponent::write() {
 
 void StreamServerComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "Stream Server:");
-    ESP_LOGCONFIG(TAG, "  Address: %s:%u", network_get_address().c_str(), this->port_);
+    ESP_LOGCONFIG(TAG, "  Address: %s:%u", esphome::network::get_use_address().c_str(), this->port_);
 }
 
 void StreamServerComponent::on_shutdown() {
@@ -173,7 +182,7 @@ StreamServerComponent::Client::Client(AsyncClient *client, std::vector<uint8_t> 
             return;
 
         auto buf = static_cast<uint8_t *>(data);
-        this->recv_buf.insert(recv_buf.end(), buf, buf + len);
+        recv_buf.insert(recv_buf.end(), buf, buf + len);
     }, nullptr);
 }
 

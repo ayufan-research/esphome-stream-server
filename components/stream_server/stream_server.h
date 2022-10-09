@@ -17,6 +17,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/uart/uart.h"
 
 #include <memory>
@@ -33,7 +34,6 @@
 class StreamServerComponent : public esphome::Component {
 public:
     StreamServerComponent() = default;
-    explicit StreamServerComponent(Stream *stream) : stream_{stream} {}
     void set_uart_parent(esphome::uart::UARTComponent *parent) { this->stream_ = parent; }
 
     void setup() override;
@@ -63,12 +63,13 @@ protected:
         bool disconnected{false};
     };
 
-    Stream *stream_{nullptr};
+    esphome::uart::UARTComponent *stream_{nullptr};
     AsyncServer server_{0};
     uint16_t port_{6638};
     int max_clients_{-1};
-    std::vector<char> send_buf_{};
+    std::vector<uint8_t> send_buf_{};
     int send_client_{0};
     std::vector<uint8_t> recv_buf_{};
     std::vector<std::unique_ptr<Client>> clients_{};
+    esphome::HighFrequencyLoopRequester high_freq_;
 };
